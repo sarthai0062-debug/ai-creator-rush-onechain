@@ -12,6 +12,7 @@ function loadSettings() {
       voiceProfile: parsed.voiceProfile || "npc",
       mouseSensitivity: Number(parsed.mouseSensitivity) || 0.001,
       qualityMode: parsed.qualityMode === "performance" ? "performance" : "quality",
+      cameraMode: parsed.cameraMode === "first" ? "first" : "third",
     };
   } catch {
     return {
@@ -19,6 +20,7 @@ function loadSettings() {
       voiceProfile: "npc",
       mouseSensitivity: 0.001,
       qualityMode: "quality",
+      cameraMode: "third",
     };
   }
 }
@@ -46,10 +48,17 @@ app.innerHTML = `
     <div class="overlay-card play-card">
       <div class="overlay-eyebrow">Professional Demo Build</div>
       <h1 class="overlay-title">AI Creator Rush</h1>
-      <p class="overlay-subtitle">Top-view action with AI NPC coaching and challenge rounds.</p>
+      <p class="overlay-subtitle">Choose your camera style, then enter the challenge world.</p>
       <div class="play-grid">
         <div class="play-block">
           <h2>Session Setup</h2>
+          <label class="settings-row">
+            <span>Camera Mode</span>
+            <select id="menu-camera-mode">
+              <option value="third">Third-person chase</option>
+              <option value="first">First-person pointer</option>
+            </select>
+          </label>
           <label class="settings-row">
             <span>Mute NPC Voice</span>
             <input id="menu-mute-toggle" type="checkbox" />
@@ -81,7 +90,7 @@ app.innerHTML = `
           <ul class="controls-list">
             <li>W A S D to move</li>
             <li>Shift to sprint</li>
-            <li>V to switch first person</li>
+            <li>V to swap first/third mode in-game</li>
             <li>Enter painting zone to generate artwork</li>
             <li>Talk to NPCs for challenge guidance</li>
           </ul>
@@ -93,8 +102,8 @@ app.innerHTML = `
 
   <div id="hud" class="hidden">
     <div class="title">AI Creator Rush</div>
-    <div id="view-mode-label" class="view-mode">View: 45° Tactical Top View</div>
-    <div class="hint">WASD move • Shift run • V top/first-person • First-person: click canvas to look</div>
+    <div id="view-mode-label" class="view-mode">View: Third-person chase cam</div>
+    <div class="hint">WASD move • Shift run • V toggle view • Click canvas in first-person to lock pointer</div>
     <div id="painting-proximity-hint" class="painting-proximity-hint">
       Move closer to the painting to unlock prompt input.
     </div>
@@ -156,11 +165,13 @@ const loadingBarFill = document.querySelector("#loading-bar-fill");
 const playScreen = document.querySelector("#play-screen");
 const hud = document.querySelector("#hud");
 const playBtn = document.querySelector("#play-btn");
+const cameraModeSelect = document.querySelector("#menu-camera-mode");
 const muteToggle = document.querySelector("#menu-mute-toggle");
 const voiceProfileSelect = document.querySelector("#menu-voice-profile");
 const sensitivityRange = document.querySelector("#menu-sensitivity");
 const qualityModeSelect = document.querySelector("#menu-quality-mode");
 
+cameraModeSelect.value = settings.cameraMode;
 muteToggle.checked = settings.voiceMuted;
 voiceProfileSelect.value = settings.voiceProfile;
 sensitivityRange.value = String(settings.mouseSensitivity);
@@ -180,6 +191,12 @@ world.start({
     loadingScreen?.classList.add("hidden");
     playScreen?.classList.remove("hidden");
   },
+});
+
+cameraModeSelect?.addEventListener("change", () => {
+  settings.cameraMode = cameraModeSelect.value === "first" ? "first" : "third";
+  saveSettings(settings);
+  world.setInitialCameraMode(settings.cameraMode);
 });
 
 muteToggle?.addEventListener("change", () => {

@@ -42,17 +42,21 @@ export class CharacterController {
   }
 
   bindInput() {
+    const keyMap = {
+      KeyW: "w",
+      KeyA: "a",
+      KeyS: "s",
+      KeyD: "d",
+    };
     window.addEventListener("keydown", (event) => {
-      if (typeof event.key === "string" && event.key.toLowerCase() in this.keys) {
-        this.keys[event.key.toLowerCase()] = true;
-      }
-      if (event.key === "Shift") this.keys.shift = true;
+      const mapped = keyMap[event.code];
+      if (mapped) this.keys[mapped] = true;
+      if (event.code === "ShiftLeft" || event.code === "ShiftRight") this.keys.shift = true;
     });
     window.addEventListener("keyup", (event) => {
-      if (typeof event.key === "string" && event.key.toLowerCase() in this.keys) {
-        this.keys[event.key.toLowerCase()] = false;
-      }
-      if (event.key === "Shift") this.keys.shift = false;
+      const mapped = keyMap[event.code];
+      if (mapped) this.keys[mapped] = false;
+      if (event.code === "ShiftLeft" || event.code === "ShiftRight") this.keys.shift = false;
     });
   }
 

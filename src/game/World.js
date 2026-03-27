@@ -54,14 +54,21 @@ export class World {
     // Pointer-lock mouse sensitivity (FPS mode).
     this.mouseSensitivity = 0.001;
     this.thirdFollowTarget = null;
+    this.thirdFollowDolly = new THREE.Vector3();
+    this.thirdGoalPos = new THREE.Vector3();
     this.camRaycaster = new THREE.Raycaster();
     this.camLookAt = new THREE.Vector3();
     this.camDesiredPos = new THREE.Vector3();
     this.camToTarget = new THREE.Vector3();
     this.cameraBaseFov = 60;
-    this.thirdCameraDistance = 12;
-    this.thirdCameraHeight = 12;
-    this.thirdCameraYaw = -Math.PI / 4;
+    this.thirdCameraDistance = 5.6;
+    this.thirdCameraHeight = 1.95;
+    this.thirdCameraLerp = 0.14;
+    this.thirdTargetLerp = 0.22;
+    this.thirdCameraPitch = 0.38;
+    this.thirdCameraYawOffset = Math.PI;
+    this.thirdCollisionPadding = 0.45;
+    this.initialCameraMode = "third";
     this.voiceMuted = false;
     this.preferredVoiceProfile = "default";
     this.onReady = null;
@@ -113,6 +120,9 @@ export class World {
     if (typeof settings.voiceProfile === "string" && settings.voiceProfile.trim()) {
       this.preferredVoiceProfile = settings.voiceProfile;
     }
+    if (settings.cameraMode === "first" || settings.cameraMode === "third") {
+      this.initialCameraMode = settings.cameraMode;
+    }
 
     if (settings.qualityMode === "performance") {
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.2));
@@ -126,21 +136,25 @@ export class World {
     const model = this.character.model;
     if (!model) return;
 
-    const target = new THREE.Vector3(model.position.x, model.position.y + 1.15, model.position.z);
-    const isometricDir = new THREE.Vector3(
-      Math.sin(this.thirdCameraYaw),
-      0,
-      Math.cos(this.thirdCameraYaw)
-    ).normalize();
+    const target = new THREE.Vector3(model.position.x, model.position.y + this.thirdCameraHeight, model.position.z);
+    const travelForward = new THREE.Vector3();
+    model.getWorldDirection(travelForward);
+    travelForward.y = 0;
+    if (travelForward.lengthSq() < 1e-8) travelForward.set(0, 0, -1);
+    travelForward.normalize();
+    const yaw = Math.atan2(travelForward.x, travelForward.z) + this.thirdCameraYawOffset;
+    const horizontalDir = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+    const verticalOffset = Math.tan(this.thirdCameraPitch) * this.thirdCameraDistance;
     const camPos = target
       .clone()
-      .addScaledVector(isometricDir, this.thirdCameraDistance)
-      .add(new THREE.Vector3(0, this.thirdCameraHeight, 0));
+      .addScaledVector(horizontalDir, this.thirdCameraDistance)
+      .add(new THREE.Vector3(0, verticalOffset, 0));
 
     this.controls.target.copy(target);
     this.camera.position.copy(camPos);
     this.camera.lookAt(target);
     this.thirdFollowTarget = target.clone();
+    this.thirdFollowDolly.copy(camPos);
   }
 
   setViewMode(next) {
@@ -148,16 +162,21 @@ export class World {
     this.viewMode = next;
 
     if (next === "first") {
-      document.exitPointerLock?.();
+      this.speech.stop?.();
       this.controls.enabled = false;
       this.fpPitch = 0;
       this.fpYawOffset = 0;
+      if (document.pointerLockElement !== this.canvas) {
+        this.canvas.requestPointerLock?.();
+      }
     } else {
       document.exitPointerLock?.();
       this.controls.enabled = false;
       this.thirdFollowTarget = null;
+      this.thirdFollowDolly.set(0, 0, 0);
       this.syncThirdPersonCameraFromCharacter();
     }
+    this.syncHudViewLabel?.();
   }
 
   toggleViewMode() {
@@ -207,37 +226,55 @@ export class World {
     const model = this.character.model;
     if (!model) return;
 
-    const target = new THREE.Vector3(model.position.x, model.position.y + 1.15, model.position.z);
+    const target = new THREE.Vector3(model.position.x, model.position.y + this.thirdCameraHeight, model.position.z);
     if (!this.thirdFollowTarget) {
       this.thirdFollowTarget = target.clone();
     }
-    const targetDelta = target.clone().sub(this.thirdFollowTarget);
-    this.camera.position.add(targetDelta);
-    this.thirdFollowTarget.copy(target);
-
-    this.camLookAt.copy(target);
-    const isometricDir = new THREE.Vector3(
-      Math.sin(this.thirdCameraYaw),
-      0,
-      Math.cos(this.thirdCameraYaw)
-    ).normalize();
-    const cameraOffset = new THREE.Vector3(0, this.thirdCameraHeight, 0).addScaledVector(
-      isometricDir,
-      this.thirdCameraDistance
-    );
-    this.camDesiredPos.copy(target).add(cameraOffset);
-    this.camToTarget.copy(this.camDesiredPos).sub(this.camLookAt);
-    const distance = this.camToTarget.length();
-    this.camRaycaster.set(this.camLookAt, this.camToTarget.normalize());
-    const hits = this.camRaycaster
-      .intersectObjects(this.scene.children, true)
-      .filter((hit) => !this.character?.model || !this.character.model.children.includes(hit.object));
-    if (hits.length > 0 && hits[0].distance < distance) {
-      this.camDesiredPos.copy(this.camLookAt).addScaledVector(this.camToTarget, hits[0].distance - 0.45);
+    this.thirdFollowTarget.lerp(target, this.thirdTargetLerp);
+    if (this.thirdFollowDolly.lengthSq() < 1e-8) {
+      this.thirdFollowDolly.copy(this.camera.position);
     }
 
-    this.camera.position.lerp(this.camDesiredPos, 0.18);
-    this.controls.target.lerp(target, 0.22);
+    const travelForward = new THREE.Vector3();
+    model.getWorldDirection(travelForward);
+    travelForward.y = 0;
+    if (travelForward.lengthSq() < 1e-8) travelForward.set(0, 0, -1);
+    travelForward.normalize();
+    const yaw = Math.atan2(travelForward.x, travelForward.z) + this.thirdCameraYawOffset;
+    const horizontalDir = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+    const verticalOffset = Math.tan(this.thirdCameraPitch) * this.thirdCameraDistance;
+
+    this.camLookAt.copy(this.thirdFollowTarget);
+    this.thirdGoalPos
+      .copy(this.thirdFollowTarget)
+      .addScaledVector(horizontalDir, this.thirdCameraDistance)
+      .add(new THREE.Vector3(0, verticalOffset, 0));
+
+    this.camDesiredPos.copy(this.thirdGoalPos);
+    this.camToTarget.copy(this.camDesiredPos).sub(this.camLookAt);
+    const distance = this.camToTarget.length();
+    this.camRaycaster.set(this.camLookAt, this.camToTarget.clone().normalize());
+    const hits = this.camRaycaster
+      .intersectObjects(this.scene.children, true)
+      .filter((hit) => {
+        const obj = hit.object;
+        return (
+          !obj.userData?.collectible &&
+          !obj.userData?.water &&
+          !this.character?.model?.children?.includes(obj) &&
+          obj !== this.character?.model
+        );
+      });
+    if (hits.length > 0 && hits[0].distance < distance) {
+      this.camDesiredPos.copy(this.camLookAt).addScaledVector(
+        this.camToTarget.normalize(),
+        Math.max(1.1, hits[0].distance - this.thirdCollisionPadding)
+      );
+    }
+
+    this.thirdFollowDolly.lerp(this.camDesiredPos, this.thirdCameraLerp);
+    this.camera.position.copy(this.thirdFollowDolly);
+    this.controls.target.lerp(this.thirdFollowTarget, this.thirdTargetLerp);
     this.camera.lookAt(this.controls.target);
   }
 
@@ -323,11 +360,12 @@ export class World {
       if (el) {
         el.textContent =
           this.viewMode === "third"
-            ? "View: 45° Tactical Top View (V for first)"
-            : "View: First person - click canvas to look (V for top view)";
+            ? "View: Third-person chase cam (V for first-person)"
+            : "View: First-person pointer look (V for chase cam)";
       }
     };
 
+    this.viewMode = this.initialCameraMode === "first" ? "first" : "third";
     this.syncThirdPersonCameraFromCharacter();
     this.bindViewControls();
     this.syncHudViewLabel();
@@ -393,6 +431,7 @@ export class World {
   }
 
   beginGameplaySession() {
+    this.setViewMode(this.initialCameraMode);
     this.runHud.hideSummary();
     if (this.gameState.phase === "idle") this.startRun();
   }
@@ -416,6 +455,14 @@ export class World {
 
   setQualityMode(mode) {
     this.applySettings({ qualityMode: mode });
+  }
+
+  setInitialCameraMode(mode) {
+    if (mode !== "first" && mode !== "third") return;
+    this.initialCameraMode = mode;
+    if (this.gameState.phase === "idle") {
+      this.setViewMode(mode);
+    }
   }
 
   startRun() {
