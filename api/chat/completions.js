@@ -1,7 +1,23 @@
-const NVIDIA_CHAT_URL = "https://integrate.api.nvidia.com/v1/chat/completions";
+function getChatConfig() {
+  const baseUrl = process.env.CHAT_API_BASE_URL || "https://integrate.api.nvidia.com";
+  const path = process.env.CHAT_API_PATH || "/v1/chat/completions";
+  const defaultModel = process.env.CHAT_MODEL || "stepfun-ai/step-3.5-flash";
+  const token =
+    process.env.CHAT_API_KEY ||
+    process.env.NV_CHAT_API_KEY ||
+    process.env.NVAPI_KEY ||
+    process.env.VITE_NVAPI_KEY ||
+    "";
+  return {
+    url: `${baseUrl}${path}`,
+    token,
+    defaultModel,
+  };
+}
 
-function readBearerToken() {
-  return process.env.NVAPI_KEY || process.env.VITE_NVAPI_KEY || "";
+function withDefaultModel(payload, defaultModel) {
+  if (!payload || typeof payload !== "object") return { model: defaultModel };
+  return payload.model ? payload : { ...payload, model: defaultModel };
 }
 
 function sendJson(res, status, payload) {
@@ -26,22 +42,23 @@ export default async function handler(req, res) {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
 
-  const token = readBearerToken();
+  const { url, token, defaultModel } = getChatConfig();
   if (!token) {
     return sendJson(res, 500, {
-      error: "Missing NVAPI_KEY environment variable on server.",
+      error:
+        "Missing chat API key. Set CHAT_API_KEY (or NV_CHAT_API_KEY / NVAPI_KEY) on server.",
     });
   }
 
   try {
-    const upstream = await fetch(NVIDIA_CHAT_URL, {
+    const upstream = await fetch(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
         Accept: "text/event-stream",
       },
-      body: JSON.stringify(getRequestPayload(req)),
+      body: JSON.stringify(withDefaultModel(getRequestPayload(req), defaultModel)),
     });
 
     if (!upstream.ok || !upstream.body) {

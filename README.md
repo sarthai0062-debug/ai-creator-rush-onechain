@@ -32,10 +32,12 @@ Create a local env file before running:
 cp .env.example .env
 ```
 
-Add your NVIDIA key (chat only):
+Add your API variables:
 
 ```bash
-NVAPI_KEY=your_nvidia_api_key_here
+CHAT_API_KEY=your_chat_api_key_here
+CHAT_MODEL=stepfun-ai/step-3.5-flash
+IMAGE_API_KEY=your_image_api_key_here
 ```
 
 NPC voice uses browser/system installed voices and does not require NVIDIA TTS access.
@@ -47,7 +49,7 @@ This project is now set up for Vercel production with serverless API routes:
 - `api/chat/completions.js`
 - `api/stable-diffusion.js`
 
-These routes keep your NVIDIA key on the server in production.
+These routes keep your API keys on the server in production.
 
 1. Push to GitHub:
 
@@ -68,14 +70,21 @@ git push -u origin main
 
 3. Add environment variables in Vercel Project Settings -> Environment Variables:
 
-- `NVAPI_KEY` = your NVIDIA API key
+- `CHAT_API_KEY` (for StepFun/chat endpoint)
+- `CHAT_MODEL=stepfun-ai/step-3.5-flash` (or your exact model)
+- `IMAGE_API_KEY` (for Stable Diffusion/image endpoint)
+
+Optional advanced endpoint overrides:
+
+- `CHAT_API_BASE_URL`, `CHAT_API_PATH`
+- `IMAGE_API_BASE_URL`, `IMAGE_API_PATH`
 
 4. Redeploy from Vercel after saving env vars.
 
 Notes:
 
 - Do not commit `.env` (already ignored in `.gitignore`).
-- You do not need to expose `VITE_NVAPI_KEY` in production.
+- You do not need to expose `VITE_IMAGE_API_KEY` in production.
 - Local development still works with `npm run dev` and `.env`.
 
 ## Controls

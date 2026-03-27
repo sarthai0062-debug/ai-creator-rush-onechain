@@ -1,4 +1,4 @@
-const MODEL_NAME = "stepfun-ai/step-3.5-flash";
+const MODEL_NAME = import.meta.env.VITE_CHAT_MODEL || "stepfun-ai/step-3.5-flash";
 const UNSAFE_TERMS = [
   "sexual minor",
   "child porn",
@@ -61,7 +61,7 @@ export async function streamNpcReply({ npc, history, playerMessage, onChunk }) {
     const text = await response.text();
     if (response.status === 401 && text.includes("authorization")) {
       throw new Error(
-        "Chat request failed (401): missing NVIDIA auth header. Set NVAPI_KEY in .env and restart npm run dev."
+        "Chat request failed (401): missing chat auth key. Set CHAT_API_KEY (or NV_CHAT_API_KEY / NVAPI_KEY) and restart npm run dev."
       );
     }
     throw new Error(`Chat request failed (${response.status}): ${text}`);

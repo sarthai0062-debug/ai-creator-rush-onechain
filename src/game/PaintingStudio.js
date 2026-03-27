@@ -170,7 +170,7 @@ export class PaintingStudio {
     if (proxyResponse.status !== 404) return proxyResponse;
 
     // 404 usually means no dev proxy (e.g. build/preview/static hosting).
-    const directKey = import.meta.env.VITE_NVAPI_KEY;
+    const directKey = import.meta.env.VITE_IMAGE_API_KEY || import.meta.env.VITE_NVAPI_KEY;
     if (!directKey) {
       return proxyResponse;
     }
@@ -220,7 +220,7 @@ export class PaintingStudio {
       const errText = await response.text();
       const maybeProxyHint =
         response.status === 404
-          ? " Run with `npm run dev`, or set `VITE_NVAPI_KEY` for direct browser fallback."
+          ? " Run with `npm run dev`, or set `VITE_IMAGE_API_KEY` (or `VITE_NVAPI_KEY`) for direct browser fallback."
           : "";
       throw new Error(`Image generation failed (${response.status}): ${errText}${maybeProxyHint}`);
     }

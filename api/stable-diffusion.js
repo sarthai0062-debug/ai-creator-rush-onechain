@@ -1,8 +1,17 @@
-const NVIDIA_IMAGE_URL =
-  "https://ai.api.nvidia.com/v1/genai/stabilityai/stable-diffusion-3-medium";
-
-function readBearerToken() {
-  return process.env.NVAPI_KEY || process.env.VITE_NVAPI_KEY || "";
+function getImageConfig() {
+  const baseUrl = process.env.IMAGE_API_BASE_URL || "https://ai.api.nvidia.com";
+  const path =
+    process.env.IMAGE_API_PATH || "/v1/genai/stabilityai/stable-diffusion-3-medium";
+  const token =
+    process.env.IMAGE_API_KEY ||
+    process.env.NV_IMAGE_API_KEY ||
+    process.env.NVAPI_KEY ||
+    process.env.VITE_NVAPI_KEY ||
+    "";
+  return {
+    url: `${baseUrl}${path}`,
+    token,
+  };
 }
 
 function sendJson(res, status, payload) {
@@ -27,15 +36,16 @@ export default async function handler(req, res) {
     return sendJson(res, 405, { error: "Method not allowed" });
   }
 
-  const token = readBearerToken();
+  const { url, token } = getImageConfig();
   if (!token) {
     return sendJson(res, 500, {
-      error: "Missing NVAPI_KEY environment variable on server.",
+      error:
+        "Missing image API key. Set IMAGE_API_KEY (or NV_IMAGE_API_KEY / NVAPI_KEY) on server.",
     });
   }
 
   try {
-    const upstream = await fetch(NVIDIA_IMAGE_URL, {
+    const upstream = await fetch(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
