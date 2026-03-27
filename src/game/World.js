@@ -44,9 +44,7 @@ export class World {
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
-    this.controls.minDistance = 1.75;
-    this.controls.maxDistance = 26;
-    this.controls.maxPolarAngle = Math.PI / 2.08;
+    this.controls.enabled = false;
 
     this.viewMode = "third";
     this.isFocusingPainting = false;
@@ -61,6 +59,13 @@ export class World {
     this.camDesiredPos = new THREE.Vector3();
     this.camToTarget = new THREE.Vector3();
     this.cameraBaseFov = 60;
+    this.thirdCameraDistance = 12;
+    this.thirdCameraHeight = 12;
+    this.thirdCameraYaw = -Math.PI / 4;
+    this.voiceMuted = false;
+    this.preferredVoiceProfile = "default";
+    this.onReady = null;
+    this.onProgress = null;
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
@@ -90,36 +95,52 @@ export class World {
     this.waterSystem = null;
   }
 
+  reportProgress(step, detail) {
+    this.onProgress?.({ step, detail });
+  }
+
+  applySettings(settings = {}) {
+    const nextSensitivity = Number(settings.mouseSensitivity);
+    if (Number.isFinite(nextSensitivity)) {
+      this.mouseSensitivity = THREE.MathUtils.clamp(nextSensitivity, 0.0004, 0.0032);
+    }
+
+    if (typeof settings.voiceMuted === "boolean") {
+      this.voiceMuted = settings.voiceMuted;
+      this.dialogueHud.setMuted(this.voiceMuted);
+    }
+
+    if (typeof settings.voiceProfile === "string" && settings.voiceProfile.trim()) {
+      this.preferredVoiceProfile = settings.voiceProfile;
+    }
+
+    if (settings.qualityMode === "performance") {
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.2));
+    } else {
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.8));
+    }
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
   syncThirdPersonCameraFromCharacter() {
     const model = this.character.model;
     if (!model) return;
 
-    // Focus slightly below the head so head stays out of view.
-    const targetY = 1.35;
-    const target = new THREE.Vector3(
-      model.position.x,
-      model.position.y + targetY,
-      model.position.z
-    );
-
-    // Place camera behind the character based on the model's actual facing direction.
-    // `getWorldDirection` returns the object's -Z axis direction in world space.
-    const forward = new THREE.Vector3();
-    model.getWorldDirection(forward);
-    forward.y = 0;
-    if (forward.lengthSq() < 1e-8) forward.set(0, 0, -1);
-    forward.normalize();
-
-    const distance = 4.2;
-    const heightOffset = 1.55;
+    const target = new THREE.Vector3(model.position.x, model.position.y + 1.15, model.position.z);
+    const isometricDir = new THREE.Vector3(
+      Math.sin(this.thirdCameraYaw),
+      0,
+      Math.cos(this.thirdCameraYaw)
+    ).normalize();
     const camPos = target
       .clone()
-      .addScaledVector(forward, -distance)
-      .add(new THREE.Vector3(0, heightOffset, 0));
+      .addScaledVector(isometricDir, this.thirdCameraDistance)
+      .add(new THREE.Vector3(0, this.thirdCameraHeight, 0));
 
     this.controls.target.copy(target);
     this.camera.position.copy(camPos);
-    this.controls.update();
+    this.camera.lookAt(target);
+    this.thirdFollowTarget = target.clone();
   }
 
   setViewMode(next) {
@@ -133,7 +154,7 @@ export class World {
       this.fpYawOffset = 0;
     } else {
       document.exitPointerLock?.();
-      this.controls.enabled = true;
+      this.controls.enabled = false;
       this.thirdFollowTarget = null;
       this.syncThirdPersonCameraFromCharacter();
     }
@@ -186,11 +207,7 @@ export class World {
     const model = this.character.model;
     if (!model) return;
 
-    const target = new THREE.Vector3(
-      model.position.x,
-      model.position.y + 1.35,
-      model.position.z
-    );
+    const target = new THREE.Vector3(model.position.x, model.position.y + 1.15, model.position.z);
     if (!this.thirdFollowTarget) {
       this.thirdFollowTarget = target.clone();
     }
@@ -199,12 +216,16 @@ export class World {
     this.thirdFollowTarget.copy(target);
 
     this.camLookAt.copy(target);
-    const camForward = new THREE.Vector3();
-    this.camera.getWorldDirection(camForward);
-    camForward.normalize();
-    const shoulderOffset = new THREE.Vector3(0.9, 1.6, 4.6);
-    shoulderOffset.applyQuaternion(this.camera.quaternion);
-    this.camDesiredPos.copy(target).add(shoulderOffset);
+    const isometricDir = new THREE.Vector3(
+      Math.sin(this.thirdCameraYaw),
+      0,
+      Math.cos(this.thirdCameraYaw)
+    ).normalize();
+    const cameraOffset = new THREE.Vector3(0, this.thirdCameraHeight, 0).addScaledVector(
+      isometricDir,
+      this.thirdCameraDistance
+    );
+    this.camDesiredPos.copy(target).add(cameraOffset);
     this.camToTarget.copy(this.camDesiredPos).sub(this.camLookAt);
     const distance = this.camToTarget.length();
     this.camRaycaster.set(this.camLookAt, this.camToTarget.normalize());
@@ -216,8 +237,8 @@ export class World {
     }
 
     this.camera.position.lerp(this.camDesiredPos, 0.18);
-    this.controls.target.lerp(target, 0.25);
-    this.controls.update();
+    this.controls.target.lerp(target, 0.22);
+    this.camera.lookAt(this.controls.target);
   }
 
   bindViewControls() {
@@ -273,17 +294,28 @@ export class World {
     }, 2200);
   }
 
-  async start() {
+  async start({ onProgress, onReady, settings } = {}) {
+    this.onProgress = onProgress || null;
+    this.onReady = onReady || null;
+    this.applySettings(settings);
+    this.reportProgress("init", "Booting world systems...");
+
+    this.reportProgress("environment", "Building world environment...");
     const env = await createEnvironment();
     this.scene.add(env);
     this.collectibles = env.userData?.collectibles || [];
 
+    this.reportProgress("water", "Preparing water simulation...");
     this.waterSystem = createLake();
     this.scene.add(this.waterSystem.water);
 
+    this.reportProgress("lighting", "Configuring scene lighting...");
     await setupLighting(this.renderer, this.scene);
+    this.reportProgress("character", "Loading player rig...");
     await this.character.init();
+    this.reportProgress("npcs", "Spawning NPC actors...");
     await this.npcs.init();
+    this.reportProgress("painting", "Setting up painting studio...");
     this.paintingStudio.init();
 
     this.syncHudViewLabel = () => {
@@ -291,8 +323,8 @@ export class World {
       if (el) {
         el.textContent =
           this.viewMode === "third"
-            ? "View: Third person (V for first)"
-            : "View: First person — click canvas to look (V for third)";
+            ? "View: 45° Tactical Top View (V for first)"
+            : "View: First person - click canvas to look (V for top view)";
       }
     };
 
@@ -305,11 +337,15 @@ export class World {
     this.runHud.setTopStats(this.gameState);
     this.runHud.setTimer(0);
     this.dialogueHud.setVoiceStatus(this.speech.getStatus());
-    window.setTimeout(() => {
-      if (this.gameState.phase === "idle") this.startRun();
-    }, 1200);
+    this.dialogueHud.setMuted(this.voiceMuted);
+    this.dialogueHud.bindMuteChange((muted) => {
+      this.voiceMuted = muted;
+      if (muted) this.speech.stop();
+    });
 
     window.addEventListener("resize", () => this.handleResize());
+    this.reportProgress("ready", "World ready. Press Play to begin.");
+    this.onReady?.();
     this.animate();
   }
 
@@ -329,8 +365,10 @@ export class World {
           onChunk: (_, fullText) => this.dialogueHud.setReply(fullText),
         });
         this.dialogueHud.setReply(finalText);
-        if (!this.dialogueHud.isMuted()) {
-          const status = await this.speech.speak(finalText, this.activeNpc.voiceProfile, "en-US");
+        const chosenProfile =
+          this.preferredVoiceProfile === "npc" ? this.activeNpc.voiceProfile : this.preferredVoiceProfile;
+        if (!this.voiceMuted && !this.dialogueHud.isMuted()) {
+          const status = await this.speech.speak(finalText, chosenProfile, "en-US");
           this.dialogueHud.setVoiceStatus(status);
           this.dialogueHud.markChecklistItem("voice", true);
         } else {
@@ -352,6 +390,32 @@ export class World {
       this.runHud.hideSummary();
       this.startRun();
     });
+  }
+
+  beginGameplaySession() {
+    this.runHud.hideSummary();
+    if (this.gameState.phase === "idle") this.startRun();
+  }
+
+  setVoiceMuted(muted) {
+    this.voiceMuted = Boolean(muted);
+    this.dialogueHud.setMuted(this.voiceMuted);
+    if (this.voiceMuted) this.speech.stop();
+  }
+
+  setPreferredVoiceProfile(profile) {
+    if (!profile) return;
+    this.preferredVoiceProfile = profile;
+  }
+
+  setMouseSensitivity(value) {
+    const nextSensitivity = Number(value);
+    if (!Number.isFinite(nextSensitivity)) return;
+    this.mouseSensitivity = THREE.MathUtils.clamp(nextSensitivity, 0.0004, 0.0032);
+  }
+
+  setQualityMode(mode) {
+    this.applySettings({ qualityMode: mode });
   }
 
   startRun() {

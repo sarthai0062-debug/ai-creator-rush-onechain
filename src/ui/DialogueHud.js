@@ -26,6 +26,11 @@ export class DialogueHud {
     });
   }
 
+  bindMuteChange(handler) {
+    if (!this.muteToggle) return;
+    this.muteToggle.addEventListener("change", () => handler(Boolean(this.muteToggle.checked)));
+  }
+
   setNpc(npc) {
     if (this.nameEl) this.nameEl.textContent = npc?.name || "No NPC nearby";
     if (this.roleEl) this.roleEl.textContent = npc ? npc.role : "Move closer to an NPC to interact.";
@@ -55,6 +60,10 @@ export class DialogueHud {
 
   isMuted() {
     return Boolean(this.muteToggle?.checked);
+  }
+
+  setMuted(muted) {
+    if (this.muteToggle) this.muteToggle.checked = Boolean(muted);
   }
 
   markChecklistItem(id, active) {

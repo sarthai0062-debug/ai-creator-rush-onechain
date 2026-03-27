@@ -2,11 +2,99 @@ import "./style.css";
 import { World } from "./game/World.js";
 
 const app = document.querySelector("#app");
+const SETTINGS_STORAGE_KEY = "ai-creator-rush-settings-v1";
+
+function loadSettings() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) || "{}");
+    return {
+      voiceMuted: Boolean(parsed.voiceMuted),
+      voiceProfile: parsed.voiceProfile || "npc",
+      mouseSensitivity: Number(parsed.mouseSensitivity) || 0.001,
+      qualityMode: parsed.qualityMode === "performance" ? "performance" : "quality",
+    };
+  } catch {
+    return {
+      voiceMuted: false,
+      voiceProfile: "npc",
+      mouseSensitivity: 0.001,
+      qualityMode: "quality",
+    };
+  }
+}
+
+function saveSettings(settings) {
+  localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+}
+
+const settings = loadSettings();
+
 app.innerHTML = `
-  <div id="hud">
+  <div id="loading-screen" class="overlay-screen">
+    <div class="overlay-card">
+      <div class="overlay-eyebrow">OneChain Prototype</div>
+      <h1 class="overlay-title">AI Creator Rush</h1>
+      <p id="loading-status" class="overlay-subtitle">Booting world systems...</p>
+      <div class="loading-bar-track">
+        <div id="loading-bar-fill" class="loading-bar-fill"></div>
+      </div>
+      <div class="loading-spinner" aria-hidden="true"></div>
+    </div>
+  </div>
+
+  <div id="play-screen" class="overlay-screen hidden">
+    <div class="overlay-card play-card">
+      <div class="overlay-eyebrow">Professional Demo Build</div>
+      <h1 class="overlay-title">AI Creator Rush</h1>
+      <p class="overlay-subtitle">Top-view action with AI NPC coaching and challenge rounds.</p>
+      <div class="play-grid">
+        <div class="play-block">
+          <h2>Session Setup</h2>
+          <label class="settings-row">
+            <span>Mute NPC Voice</span>
+            <input id="menu-mute-toggle" type="checkbox" />
+          </label>
+          <label class="settings-row">
+            <span>Voice Profile</span>
+            <select id="menu-voice-profile">
+              <option value="npc">Auto by NPC</option>
+              <option value="alloy">Alloy</option>
+              <option value="verse">Verse</option>
+              <option value="echo">Echo</option>
+              <option value="default">Default</option>
+            </select>
+          </label>
+          <label class="settings-row">
+            <span>Look Sensitivity</span>
+            <input id="menu-sensitivity" type="range" min="0.0004" max="0.0032" step="0.0001" />
+          </label>
+          <label class="settings-row">
+            <span>Graphics</span>
+            <select id="menu-quality-mode">
+              <option value="quality">Quality</option>
+              <option value="performance">Performance</option>
+            </select>
+          </label>
+        </div>
+        <div class="play-block">
+          <h2>Controls</h2>
+          <ul class="controls-list">
+            <li>W A S D to move</li>
+            <li>Shift to sprint</li>
+            <li>V to switch first person</li>
+            <li>Enter painting zone to generate artwork</li>
+            <li>Talk to NPCs for challenge guidance</li>
+          </ul>
+        </div>
+      </div>
+      <button id="play-btn" class="play-btn" type="button">Play</button>
+    </div>
+  </div>
+
+  <div id="hud" class="hidden">
     <div class="title">AI Creator Rush</div>
-    <div id="view-mode-label" class="view-mode">View: Third person</div>
-    <div class="hint">WASD move • Shift run • V first/third • Third: drag orbit, scroll zoom • First: click to look</div>
+    <div id="view-mode-label" class="view-mode">View: 45° Tactical Top View</div>
+    <div class="hint">WASD move • Shift run • V top/first-person • First-person: click canvas to look</div>
     <div id="painting-proximity-hint" class="painting-proximity-hint">
       Move closer to the painting to unlock prompt input.
     </div>
@@ -62,5 +150,64 @@ app.innerHTML = `
 `;
 
 const canvas = document.querySelector("#game-canvas");
+const loadingScreen = document.querySelector("#loading-screen");
+const loadingStatus = document.querySelector("#loading-status");
+const loadingBarFill = document.querySelector("#loading-bar-fill");
+const playScreen = document.querySelector("#play-screen");
+const hud = document.querySelector("#hud");
+const playBtn = document.querySelector("#play-btn");
+const muteToggle = document.querySelector("#menu-mute-toggle");
+const voiceProfileSelect = document.querySelector("#menu-voice-profile");
+const sensitivityRange = document.querySelector("#menu-sensitivity");
+const qualityModeSelect = document.querySelector("#menu-quality-mode");
+
+muteToggle.checked = settings.voiceMuted;
+voiceProfileSelect.value = settings.voiceProfile;
+sensitivityRange.value = String(settings.mouseSensitivity);
+qualityModeSelect.value = settings.qualityMode;
+
 const world = new World(canvas);
-world.start();
+world.start({
+  settings,
+  onProgress: ({ step, detail }) => {
+    if (loadingStatus) loadingStatus.textContent = detail;
+    const order = ["init", "environment", "water", "lighting", "character", "npcs", "painting", "ready"];
+    const currentStep = order.findIndex((entry) => entry === step);
+    const ratio = currentStep >= 0 ? (currentStep + 1) / order.length : 0.35;
+    if (loadingBarFill) loadingBarFill.style.width = `${Math.max(12, ratio * 100)}%`;
+  },
+  onReady: () => {
+    loadingScreen?.classList.add("hidden");
+    playScreen?.classList.remove("hidden");
+  },
+});
+
+muteToggle?.addEventListener("change", () => {
+  settings.voiceMuted = muteToggle.checked;
+  saveSettings(settings);
+  world.setVoiceMuted(settings.voiceMuted);
+});
+
+voiceProfileSelect?.addEventListener("change", () => {
+  settings.voiceProfile = voiceProfileSelect.value;
+  saveSettings(settings);
+  world.setPreferredVoiceProfile(settings.voiceProfile);
+});
+
+sensitivityRange?.addEventListener("input", () => {
+  settings.mouseSensitivity = Number(sensitivityRange.value);
+  saveSettings(settings);
+  world.setMouseSensitivity(settings.mouseSensitivity);
+});
+
+qualityModeSelect?.addEventListener("change", () => {
+  settings.qualityMode = qualityModeSelect.value;
+  saveSettings(settings);
+  world.setQualityMode(settings.qualityMode);
+});
+
+playBtn?.addEventListener("click", () => {
+  playScreen?.classList.add("hidden");
+  hud?.classList.remove("hidden");
+  world.beginGameplaySession();
+});
